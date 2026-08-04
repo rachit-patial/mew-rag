@@ -1,0 +1,39 @@
+name: Branch Auto-Merge Workflow
+
+on:
+  push:
+    branches:
+      - 'feature**'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  build-and-merge:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository code
+        uses: actions/checkout@v4
+      
+      - name: Create or Update Pull requests
+        id: cpr
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ github.ref_name }}
+          base: main
+          title: "Auto-PR: Merge ${{ github.ref_name }} into develop"
+          body: |
+           Automated PR created by GitHub Actions workflow for commit `${{ github.sha }}`.
+          labels: automated-merge 
+      
+      - name: Auto-Merge Pull request
+        if: ${{ steps.cpr.outputs.pull-request-number }}
+        run: |
+          gh pr merge ${{ steps.cpr.outputs.pull-request-number }} \
+            --auto \
+            --merge \
+            --delete-branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
