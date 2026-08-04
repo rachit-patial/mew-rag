@@ -1,4 +1,4 @@
-name: Branch Auto-Merge Workflow
+name: Approval & Merge Pipeline
 
 on:
   push:
@@ -10,30 +10,48 @@ permissions:
   pull-requests: write
 
 jobs:
-  build-and-merge:
+  # -------------------------------------------------------------
+  # STAGE 1: Calculate and Display Diff
+  # -------------------------------------------------------------
+  preview-diff:
+    name: Generate Code Diff
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository code
         uses: actions/checkout@v4
-      
-      - name: Create or Update Pull requests
-        id: cpr
-        uses: peter-evans/create-pull-request@v6
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          branch: ${{ github.ref_name }}
-          base: main
-          title: "Auto-PR: Merge ${{ github.ref_name }} into develop"
-          body: |
-           Automated PR created by GitHub Actions workflow for commit `${{ github.sha }}`.
-          labels: automated-merge 
-      
-      - name: Auto-Merge Pull request
-        if: ${{ steps.cpr.outputs.pull-request-number }}
+          fetch-depth: 0 # Fetch all history so diff works
+
+      - name: Generate Diff against main
+        id: diff
         run: |
-          gh pr merge ${{ steps.cpr.outputs.pull-request-number }} \
-            --auto \
-            --merge \
-            --delete-branch
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          echo "## 🔍 Code Changes Diff (Target: main)" >> $GITHUB_STEP_SUMMARY
+          echo '```diff' >> $GITHUB_STEP_SUMMARY
+          git diff origin/main...${{ github.sha }} >>$GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+  # -------------------------------------------------------------
+  # STAGE 2: Wait for Manual Approval & Merge
+  # -------------------------------------------------------------
+  merge-to-main:
+    name: Approve & Merge to Main
+    needs: preview-diff
+    runs-on: ubuntu-latest
+    # This environment forces GitHub to pause and wait for your manual approval
+    environment: production-approval
+
+    steps:
+      - name: Checkout repository code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Merge feature branch into main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git checkout main
+          git pull origin main
+          git merge --no-ff ${{ github.sha }} -m "Merge branch '${{ github.ref_name }}' into main after manual approval"
+          git push origin main
