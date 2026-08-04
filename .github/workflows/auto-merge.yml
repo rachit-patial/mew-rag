@@ -3,8 +3,7 @@ name: Approval & Merge Pipeline
 on:
   push:
     branches:
-      - 'feature/**'
-      - 'bugfix/**'
+      - 'feature**'
 
 permissions:
   contents: write
