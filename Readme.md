@@ -1,4 +1,3 @@
-Here is a production-ready **`README.md`** tailored to the Rust RAG architecture created:
 
 ---
 
