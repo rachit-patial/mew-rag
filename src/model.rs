@@ -3,8 +3,9 @@ use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RawDocument {
+    #[serde(default = "Uuid::new_v4")]
     pub id: Uuid,
-    pub title: String, 
+    pub title: String,
     pub source: String,
     pub content: String,
 }
