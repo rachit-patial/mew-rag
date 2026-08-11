@@ -1,14 +1,24 @@
-mod model;
+mod cache;
 mod ingestion;
+mod model;
 mod retrieval;
 
 use anyhow::Result;
-use model::RawDocument;
-use ingestion::IngestionPipeline;
-use uuid::Uuid;
-use retrieval::RetrievalPipeline;
+use cache::LlmCache;
 use dotenvy::dotenv;
+use ingestion::IngestionPipeline;
+use model::RawDocument;
+use retrieval::RetrievalPipeline;
 use std::env;
+use std::fs;
+
+fn load_documents_from_json(
+    file_path: &str,
+) -> Result<Vec<RawDocument>, Box<dyn std::error::Error + Send + Sync>> {
+    let data = fs::read_to_string(file_path)?;
+    let docs: Vec<RawDocument> = serde_json::from_str(&data)?;
+    Ok(docs)
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -17,15 +27,15 @@ async fn main() -> Result<()> {
 
     let pipeline = IngestionPipeline::new(qdrant_url, collection_name).await?;
 
-    let sample_doc = RawDocument {
-        id: Uuid::new_v4(),
-        title: "SD-WAN".to_string(),
-        source: "docs/sd_wan_intro.md".to_string(),
-        content: "SD-WAN (Software-Defined Wide Area Network) is a virtual technology that uses software to manage and smart-route network traffic across different locations. It replaces old, expensive private lines with a mix of regular internet, 5G, and secure links to boost speed and lower costs.".to_string(),
-    };
+    let sample_doc =
+        load_documents_from_json("document.json").map_err(|e| anyhow::anyhow!("{}", e))?;
 
-    println!("Ingesting document...");
-    pipeline.ingest_document(sample_doc).await?;
+    println!("Ingesting {} document...", sample_doc.len());
+
+    for doc in sample_doc {
+        println!("Processing: {}", doc.title);
+        pipeline.ingest_document(doc).await?;
+    }
     println!("Document ingested successfully!");
 
     println!("\n🔎 Initializing Retrieval Pipeline...");
@@ -44,9 +54,12 @@ async fn main() -> Result<()> {
 
     let api_key = env::var("GROQ_API_KEY").expect("API Key not found");
 
+    let cache = LlmCache::new("llm_cache")?;
     println!("Generating answer with local LLM...");
-    let answer = retrieval_pipeline.generate_answer_groq(&augmented_prompt, &api_key).await?;
+    let answer = retrieval_pipeline
+        .generate_answer_groq(&augmented_prompt, &api_key, &cache)
+        .await?;
     println!("🤖 LLM Answer:\n{}", answer);
-    
+
     Ok(())
 }

@@ -1,7 +1,10 @@
 use anyhow::Result;
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
-use qdrant_client::qdrant::{CreateCollectionBuilder, Distance, PointStruct, UpsertPointsBuilder, VectorParamsBuilder};
+use qdrant_client::qdrant::{
+    CreateCollectionBuilder, Distance, PointStruct, UpsertPointsBuilder, VectorParamsBuilder,
+};
 use qdrant_client::{Payload, Qdrant};
+use sha2::{Digest, Sha256};
 use text_splitter::TextSplitter;
 use uuid::Uuid;
 
@@ -10,6 +13,15 @@ use crate::model::{Chunk, RawDocument};
 pub struct IngestionPipeline {
     qdrant: Qdrant,
     collection_name: String,
+}
+
+pub fn generate_chunk_id(chunk_content: &str) -> Uuid {
+    let mut hasher = Sha256::new();
+    hasher.update(chunk_content.as_bytes());
+    let hash = hasher.finalize();
+
+    let bytes: [u8; 16] = hash[..16].try_into().unwrap();
+    Uuid::from_bytes(bytes)
 }
 
 impl IngestionPipeline {
@@ -22,9 +34,8 @@ impl IngestionPipeline {
             let vector_dim = 384; // Dimension size for MiniLM-L6-v2
             qdrant
                 .create_collection(
-                    CreateCollectionBuilder::new(collection_name).vectors_config(
-                        VectorParamsBuilder::new(vector_dim, Distance::Cosine),
-                    ),
+                    CreateCollectionBuilder::new(collection_name)
+                        .vectors_config(VectorParamsBuilder::new(vector_dim, Distance::Cosine)),
                 )
                 .await?;
         }
@@ -41,9 +52,14 @@ impl IngestionPipeline {
         let splitter = TextSplitter::new(120);
         let mut chunks: Vec<Chunk> = Vec::new();
 
-        for chunk_text in splitter.chunks(&doc.content) {
+        for (index, chunk_text) in splitter.chunks(&doc.content).enumerate() {
+            let unique_chunk_key = format!("{}:{}:{}", doc.source, index, chunk_text);
+            let chunk_id = generate_chunk_id(&unique_chunk_key);
+
+            println!("chunk_id {} for {}", chunk_id, doc.id);
+
             chunks.push(Chunk {
-                chunk_id: Uuid::new_v4(),
+                chunk_id: chunk_id,
                 doc_id: doc.id,
                 title: doc.title.clone(),
                 text: chunk_text.to_string(),
@@ -68,7 +84,11 @@ impl IngestionPipeline {
             })
             .try_into()?;
 
-            points.push(PointStruct::new(chunk.chunk_id.to_string(), vector, payload));
+            points.push(PointStruct::new(
+                chunk.chunk_id.to_string(),
+                vector,
+                payload,
+            ));
         }
 
         self.qdrant
