@@ -2,3 +2,5 @@
 qdrant_data/
 .fastembed_cache/
 .env
+llm_cache/
+document.json
